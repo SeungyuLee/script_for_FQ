@@ -41,13 +41,19 @@ def getBaseParam(proto, weight):
 
 # load trained parameters
 param_dict = getBaseParam(base_proto, base_weight)
-gpu_id = 0
 
-def evalAccMax(individual):
+def evalAccMax(individual, gpu_id=0):
+	import sys
+	sys.path.append('./caffe-FQ/python')
+	import caffe
+	fq_proto = "./lenet_train_test_fq.prototxt"
+	fq_weight = "./lenet_fq.caffemodel"
+
+	print("evalAccMax called")
 	caffe.set_mode_gpu()
-	global gpu_id
+	print("caffe.set_mode.gpu() success")
 	caffe.set_device(gpu_id)
-	gpu_id = 1 - gpu_id
+	print("caffe.set_device() success")
 
 	net = caffe.Net(fq_proto, caffe_pb2.TRAIN)
 

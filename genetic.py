@@ -21,59 +21,117 @@ toolbox.register("individual", tools.initRepeat, creator.Individual, \
 		toolbox.attr_bool, n=num_fqlayers)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
-def cxTwoPointCopy(ind1, ind2):
-	size = len(ind1)
-	cxpoint1 = random.randint(1, size)
-	cxpoint2 = random.randint(1, size-1)
-	if cxpoint2 >= cxpoint1:
-		cxpoint2 += 1
-	else:
-		cxpoint1, cxpoint2 = cxpoint2, cxpoint1
-
-	ind1[cxpoint1:cxpoint2], ind2[cxpoint1:cxpoint2] \
-		= ind2[cxpoint1:cxpoint2].copy(), ind1[cxpoint1:cxpoint2].copy()
-
-	return ind1, ind2
-
 toolbox.register("evaluate", sg_transfer.evalAccMax)
-toolbox.register("mate", cxTwoPointCopy)
+toolbox.register("mate", tools.cxTwoPoint)
 toolbox.register("mutate", tools.mutUniformInt, low=min_bitwidth, up=max_bitwidth, indpb=0.1)
 toolbox.register("select", tools.selTournament, tournsize=3)
-"""
-pool = multiprocessing.Pool()
-toolbox.register("map", pool.map)
-"""
+
+def process(queue, gpu):
+	while(True):
+		sg_transfer.evalAccMax(queue.get(), gpu)
+		if(queue.empty()): return
 
 def main():
 	random.seed(64)
+
 	pop = toolbox.population(n=20)
-	hof = tools.HallOfFame(10, similar=numpy.array_equal)
+	CXPB, MUTPB = 0.5, 0.2
+
+	print("Start of evolution")
 	
-	stats = tools.Statistics(lambda ind: ind.fitness.values)
-	stats.register("avg", numpy.mean)
-	stats.register("std", numpy.std)
-	stats.register("min", numpy.min)
-	stats.register("max", numpy.max)
+	fitnesses = [None] * 20
+	
+	start_time = datetime.datetime.now()
+
+	# multiprocessing.Process test below
+	p = multiprocessing.Process(target=sg_transfer.evalAccMax, args=(pop[0],0))
+	p.start()
+	p.join()
+
+	# queue test below
+	q = multiprocessing.Queue(20)
+	for ind in range(len(pop)):
+		q.put(pop[ind])
+
+	process_gpu0 = multiprocessing.Process(target=process, args=(q,0,))
+	process_gpu1 = multiprocessing.Process(target=process, args=(q,1,))
+	process_gpu0.start()
+	process_gpu1.start()
+	process_gpu0.join()
+	process_gpu1.join()
+
+	end_time = datetime.datetime.now()
+	print(" %s \n" % (end_time-start_time))
+	
+	return
+	# normal procedure below(without multiprocessing)
+	fitnesses = list(map(toolbox.evaluate, pop))
+	for ind, fit in zip(pop, fitnesses):
+		ind.fitness.values = fit
+
+	print(" Evaluated %i individuals" % len(pop))
+
+	fits = [ind.fitness.values[0] for ind in pop]
+
+	g = 0
 
 	start_time = datetime.datetime.now()
-	pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2, \
-			ngen=40, stats=stats, halloffame=hof, verbose=True)
-	end_time = datetime.datetime.now()
+	while max(fits) < 100 and g < 1000:
+		g = g + 1
+		print("-- Generation %i --" % g)
 
+		offspring = toolbox.select(pop, len(pop))
+		offspring = list(map(toolbox.clone, offspring))
+
+		for child1, child2 in zip(offspring[::2], offspring[1::2]):
+			
+			if random.random() < CXPB:
+				toolbox.mate(child1, child2)
+				del child1.fitness.values
+				del child2.fitness.values
+
+		for mutant in offspring:
+			if random.random() < MUTPB:
+				toolbox.mutate(mutant)
+				del mutant.fitness.values
+
+		invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+		fitnesses = map(toolbox.evaluate, invalid_ind)
+		for ind, fit in zip(invalid_ind, fitnesses):
+			ind.fitness.values = fit
+
+		print(" Evaluated %i individuals" % len(invalid_ind))
+
+		pop[:] = offspring
+
+		fits = [ind.fitness.values[0] for ind in pop]
+
+		length = len(pop)
+		mean = sum(fits) / length
+		sum2 = sum(x*x for x in fits)
+		std = abs(sum2 / length - mean**2)**0.5
+
+		print(" Min %s" % min(fits))
+		print(" Max %s" % max(fits))
+		print(" Avg %s" % mean)
+		print(" Std %s" % std)
+
+	end_time = datetime.datetime.now()
+	print("-- End of evolution --")
+
+	best_ind = tools.selBest(pop, 5)
+	for ind in len(best_ind):
+		print("Best individual %s is %s, %s" % (i, best_ind[i], best_ind[i].fitness.values))
 
 	# result documentation
 	f = open('result.txt', 'w')
 	f.write('start time: %s\n' % (str(start_time)))
 	f.write('end time: %s\n' % (str(end_time)))
-	f.write('log: \n%s\n' % (str(log)))
-	f.write('Hall of Fame 10: \n')
-	for ind in range(len(hof)):
-		f.write('%s\n' %(hof[ind]))
+	for ind in range(len(best_ind)):
+		f.write('%s\n' %(best_ind[ind]))
 	f.close()
 
-	print (hof)
-
-	return pop, log, hof
+	return 
 
 if __name__ == "__main__":
 	main()
