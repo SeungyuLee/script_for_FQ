@@ -4,7 +4,8 @@ from __future__ import division
 from __future__ import print_function
 
 from deap import algorithms, base, creator, tools, gp
-import multiprocessing, random, numpy, datetime
+import multiprocessing as mp 
+import random, numpy, datetime
 
 import sg_transfer 
 
@@ -41,27 +42,16 @@ def main():
 	
 	fitnesses = [None] * 20
 	
-	start_time = datetime.datetime.now()
-
-	# multiprocessing.Process test below
-	p = multiprocessing.Process(target=sg_transfer.evalAccMax, args=(pop[0],0))
-	p.start()
-	p.join()
-
 	# queue test below
-	q = multiprocessing.Queue(20)
+	q = mp.Queue(20)
 	for ind in range(len(pop)):
 		q.put(pop[ind])
 
-	process_gpu0 = multiprocessing.Process(target=process, args=(q,0,))
-	process_gpu1 = multiprocessing.Process(target=process, args=(q,1,))
-	process_gpu0.start()
-	process_gpu1.start()
-	process_gpu0.join()
-	process_gpu1.join()
-
-	end_time = datetime.datetime.now()
-	print(" %s \n" % (end_time-start_time))
+	process_gpu = [mp.Process(target=process, args=(q,0,)), mp.Process(target=process, args=(q,1,))]
+	process_gpu[0].start()
+	process_gpu[1].start()
+	process_gpu[0].join()
+	process_gpu[1].join()
 	
 	return
 	# normal procedure below(without multiprocessing)
@@ -75,7 +65,6 @@ def main():
 
 	g = 0
 
-	start_time = datetime.datetime.now()
 	while max(fits) < 100 and g < 1000:
 		g = g + 1
 		print("-- Generation %i --" % g)
@@ -116,17 +105,14 @@ def main():
 		print(" Avg %s" % mean)
 		print(" Std %s" % std)
 
-	end_time = datetime.datetime.now()
 	print("-- End of evolution --")
 
-	best_ind = tools.selBest(pop, 5)
+	best_ind = tools.selBest(pop, 10)
 	for ind in len(best_ind):
 		print("Best individual %s is %s, %s" % (i, best_ind[i], best_ind[i].fitness.values))
 
 	# result documentation
 	f = open('result.txt', 'w')
-	f.write('start time: %s\n' % (str(start_time)))
-	f.write('end time: %s\n' % (str(end_time)))
 	for ind in range(len(best_ind)):
 		f.write('%s\n' %(best_ind[ind]))
 	f.close()

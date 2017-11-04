@@ -19,10 +19,7 @@ base_proto = "./lenet_train_test.prototxt"
 base_weight = "./lenet_iter_10000.caffemodel"
 fq_proto = "./lenet_train_test_fq.prototxt"
 fq_weight = "./lenet_fq.caffemodel"
-"""
-active_bit_width = 3
-weight_bit_width = 3
-"""
+
 # basic functions
 def setParam(net, layer_name, index, data):
 	layer_idx = list(net._layer_names).index(layer_name)
@@ -39,22 +36,25 @@ def getBaseParam(proto, weight):
 			rtn_dict[name] = lst
 	return rtn_dict
 
-# load trained parameters
-param_dict = getBaseParam(base_proto, base_weight)
-
-def evalAccMax(individual, gpu_id=0):
+def evalAccMax(individual, gpu_id):
 	import sys
 	sys.path.append('./caffe-FQ/python')
+	from caffe.proto import caffe_pb2
 	import caffe
+	import time
+	import json
+
 	fq_proto = "./lenet_train_test_fq.prototxt"
 	fq_weight = "./lenet_fq.caffemodel"
+	base_proto = "./lenet_train_test.prototxt"
+	base_weight = "./lenet_iter_10000.caffemodel"
 
-	print("evalAccMax called")
+	# load trained parameters
+	param_dict = getBaseParam(base_proto, base_weight)
+
 	caffe.set_mode_gpu()
-	print("caffe.set_mode.gpu() success")
 	caffe.set_device(gpu_id)
-	print("caffe.set_device() success")
-
+	
 	net = caffe.Net(fq_proto, caffe_pb2.TRAIN)
 
 	ind_idx = 0
