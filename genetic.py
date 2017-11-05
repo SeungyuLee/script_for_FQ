@@ -27,10 +27,12 @@ toolbox.register("mate", tools.cxTwoPoint)
 toolbox.register("mutate", tools.mutUniformInt, low=min_bitwidth, up=max_bitwidth, indpb=0.1)
 toolbox.register("select", tools.selTournament, tournsize=3)
 
-def process(queue, gpu):
+def proc(ind_queue, result_queue, gpu_id):
 	while(True):
-		sg_transfer.evalAccMax(queue.get(), gpu)
-		if(queue.empty()): return
+		individual = ind_queue.get()
+		result = sg_transfer.evalAccMax(individual, gpu_id)
+		result_queue.put([individual, result])
+		if(ind_queue.empty()): return
 
 def main():
 	random.seed(64)
@@ -42,20 +44,26 @@ def main():
 	
 	fitnesses = [None] * 20
 	
-	# queue test below
-	q = mp.Queue(20)
+	ind_q = mp.Queue(20)
+	result_q = mp.Queue(20)
 	for ind in range(len(pop)):
-		q.put(pop[ind])
+		ind_q.put(pop[ind])
 
-	process_gpu = [mp.Process(target=process, args=(q,0,)), mp.Process(target=process, args=(q,1,))]
+	process_gpu = [mp.Process(target=proc, args=(ind_q,result_q,0,)), mp.Process(target=proc, args=(ind_q,result_q,1,))]
 	process_gpu[0].start()
 	process_gpu[1].start()
 	process_gpu[0].join()
 	process_gpu[1].join()
+
+	ind_res_tuple = [(None, None)] * 20
 	
-	return
-	# normal procedure below(without multiprocessing)
-	fitnesses = list(map(toolbox.evaluate, pop))
+	for ind in range(len(pop)):
+		ind_res_tuple[ind] = result_q.get()
+
+	for ind in range(len(pop)):
+		pop[ind] = ind_res_tuple[ind][0]
+		fitnesses[ind] = ind_res_tuple[ind][1]
+
 	for ind, fit in zip(pop, fitnesses):
 		ind.fitness.values = fit
 
@@ -65,6 +73,7 @@ def main():
 
 	g = 0
 
+	start_time = datetime.datetime.now()
 	while max(fits) < 100 and g < 1000:
 		g = g + 1
 		print("-- Generation %i --" % g)
@@ -85,7 +94,28 @@ def main():
 				del mutant.fitness.values
 
 		invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-		fitnesses = map(toolbox.evaluate, invalid_ind)
+		print (invalid_ind)
+
+		# multiprocessing again
+		ind_q = mp.Queue(len(invalid_ind))
+		result_q = mp.Queue(len(invalid_ind))
+		for ind in range(len(invalid_ind)):
+			ind_q.put(invalid_ind[ind])
+
+		process_gpu = [mp.Process(target=proc, args=(ind_q,result_q,0,)), mp.Process(target=proc, args=(ind_q,result_q,1,))]
+		process_gpu[0].start()
+		process_gpu[1].start()
+		process_gpu[0].join()
+		process_gpu[1].join()
+
+		ind_res_tuple = [(None, None)] * len(invalid_ind)
+	
+		for ind in range(len(invalid_ind)):
+			ind_res_tuple[ind] = result_q.get()
+
+		for ind in range(len(invalid_ind)):
+			fitnesses[ind] = ind_res_tuple[ind][1]
+
 		for ind, fit in zip(invalid_ind, fitnesses):
 			ind.fitness.values = fit
 
@@ -104,15 +134,19 @@ def main():
 		print(" Max %s" % max(fits))
 		print(" Avg %s" % mean)
 		print(" Std %s" % std)
-
+		
+	end_time = datetime.datetime.now()
 	print("-- End of evolution --")
 
 	best_ind = tools.selBest(pop, 10)
-	for ind in len(best_ind):
+	for i in range(len(best_ind)):
 		print("Best individual %s is %s, %s" % (i, best_ind[i], best_ind[i].fitness.values))
 
 	# result documentation
 	f = open('result.txt', 'w')
+	f.write('start time: %s\n' % (str(start_time)))
+	f.write('end time: %s\n' % (str(end_time)))
+
 	for ind in range(len(best_ind)):
 		f.write('%s\n' %(best_ind[ind]))
 	f.close()
