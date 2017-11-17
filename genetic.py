@@ -10,8 +10,8 @@ import random, numpy, datetime
 import sg_transfer 
 
 num_fqlayers = 7
-min_bitwidth = 2
-max_bitwidth = 5
+min_bitwidth = 3
+max_bitwidth = 8
 
 creator.create("FitnessMax", base.Fitness, weights=(1,))
 creator.create("Individual", numpy.ndarray, fitness=creator.FitnessMax)
@@ -36,16 +36,18 @@ def proc(ind_queue, result_queue, gpu_id):
 
 def main():
 	random.seed(64)
+	pop_num = 80
+	gen_num = 20
 
-	pop = toolbox.population(n=20)
-	CXPB, MUTPB = 0.5, 0.2
+	pop = toolbox.population(n=pop_num)
+	CXPB, MUTPB = 0.5, 0.3
 
 	print("Start of evolution")
 	
-	fitnesses = [None] * 20
+	fitnesses = [None] * pop_num
 	
-	ind_q = mp.Queue(20)
-	result_q = mp.Queue(20)
+	ind_q = mp.Queue(pop_num)
+	result_q = mp.Queue(pop_num)
 	for ind in range(len(pop)):
 		ind_q.put(pop[ind])
 
@@ -55,11 +57,12 @@ def main():
 	process_gpu[0].join()
 	process_gpu[1].join()
 
-	ind_res_tuple = [(None, None)] * 20
+	ind_res_tuple = [(None, None)] * pop_num
 	
 	for ind in range(len(pop)):
 		ind_res_tuple[ind] = result_q.get()
 
+	# it is observed that the order of 'pop' and 'ind_res_tuple' are the same
 	for ind in range(len(pop)):
 		pop[ind] = ind_res_tuple[ind][0]
 		fitnesses[ind] = ind_res_tuple[ind][1]
@@ -72,15 +75,14 @@ def main():
 	fits = [ind.fitness.values[0] for ind in pop]
 
 	g = 0
-
+	
 	start_time = datetime.datetime.now()
-	while max(fits) < 100 and g < 1000:
+	while max(fits) < 100 and g < gen_num:
 		g = g + 1
 		print("-- Generation %i --" % g)
 
 		offspring = toolbox.select(pop, len(pop))
 		offspring = list(map(toolbox.clone, offspring))
-
 		for child1, child2 in zip(offspring[::2], offspring[1::2]):
 			
 			if random.random() < CXPB:
@@ -94,13 +96,11 @@ def main():
 				del mutant.fitness.values
 
 		invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-		print (invalid_ind)
-
 		# multiprocessing again
 		ind_q = mp.Queue(len(invalid_ind))
 		result_q = mp.Queue(len(invalid_ind))
-		for ind in range(len(invalid_ind)):
-			ind_q.put(invalid_ind[ind])
+		for i in range(len(invalid_ind)):
+			ind_q.put(invalid_ind[i])
 
 		process_gpu = [mp.Process(target=proc, args=(ind_q,result_q,0,)), mp.Process(target=proc, args=(ind_q,result_q,1,))]
 		process_gpu[0].start()
@@ -109,13 +109,17 @@ def main():
 		process_gpu[1].join()
 
 		ind_res_tuple = [(None, None)] * len(invalid_ind)
-	
+		fitnesses = [None] * len(invalid_ind)	
+
+		print ("result_q.get() start")
 		for ind in range(len(invalid_ind)):
 			ind_res_tuple[ind] = result_q.get()
 
+		print ("fitnesses[ind] start")
 		for ind in range(len(invalid_ind)):
 			fitnesses[ind] = ind_res_tuple[ind][1]
 
+		print ("ind.fitness.values = fit start")
 		for ind, fit in zip(invalid_ind, fitnesses):
 			ind.fitness.values = fit
 
@@ -138,7 +142,7 @@ def main():
 	end_time = datetime.datetime.now()
 	print("-- End of evolution --")
 
-	best_ind = tools.selBest(pop, 10)
+	best_ind = tools.selBest(pop, pop_num)
 	for i in range(len(best_ind)):
 		print("Best individual %s is %s, %s" % (i, best_ind[i], best_ind[i].fitness.values))
 
@@ -147,8 +151,11 @@ def main():
 	f.write('start time: %s\n' % (str(start_time)))
 	f.write('end time: %s\n' % (str(end_time)))
 
-	for ind in range(len(best_ind)):
-		f.write('%s\n' %(best_ind[ind]))
+	f.write('population number: %s\n' % (pop_num))
+	f.write('generation number: %s\n' % (gen_num))
+
+	for i in range(len(best_ind)):
+		f.write('layers: %s, accuracy: %s\n' %(best_ind[i], best_ind[i].fitness.values))
 	f.close()
 
 	return 
